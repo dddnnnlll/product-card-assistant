@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from streamlit.testing.v1 import AppTest
 from card_assistant.provider import ProviderError
+from card_assistant.auth import hash_password
 from tests.fixtures import fixture_report
 
 APP = Path(__file__).resolve().parent.parent / "app.py"
@@ -14,6 +15,7 @@ APP = Path(__file__).resolve().parent.parent / "app.py"
 def isolate_credentials(monkeypatch):
     """Исключает реальные ключи из UI-тестов, чтобы тестирование не вызывало платёжный или сетевой API."""
     monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("APP_PASSWORD_HASH", hash_password("test-password"))
 
     def empty_env(*args, **kwargs):
         """Подменяет чтение локального .env пустым набором настроек."""
@@ -44,7 +46,7 @@ def click_label(app: AppTest, label: str) -> AppTest:
 
 def test_api_form_and_invalid_input() -> None:
     """Проверяет единственный режим API, заполнение формы и удаление результата при ошибке."""
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = logged_in_app()
     assert not app.exception
     assert len(app.radio) == 0
     app.text_input(key="api_key_input").set_value("test-key").run()
@@ -65,7 +67,7 @@ def test_api_form_and_invalid_input() -> None:
 
 def test_conflict_and_missing_api_key() -> None:
     """Проверяет переключение примера, предупреждение о конфликте и ошибку отсутствия ключа."""
-    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app = logged_in_app()
     app.text_input(key="api_key_input").set_value("test-key").run()
     app.selectbox(key="example_label").select("Противоречивые данные").run()
     click_label(app, "Заполнить пример")
@@ -76,3 +78,43 @@ def test_conflict_and_missing_api_key() -> None:
     click_label(app, "Создать описание")
     assert not app.exception
     assert any("API-ключ" in error.value for error in app.error)
+
+
+def logged_in_app() -> AppTest:
+    """Открывает тестовую сессию и выполняет вход с тестовым паролем."""
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    app.text_input(key="login_password").set_value("test-password")
+    return click_label(app, "Войти")
+
+
+def test_login_gate_and_logout() -> None:
+    """Проверяет скрытие генерации до входа, отказ неверному паролю и очистку при выходе."""
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert not app.exception
+    assert [item.label for item in app.button] == ["Войти"]
+    assert len(app.text_area) == 0
+    app.text_input(key="login_password").set_value("wrong")
+    click_label(app, "Войти")
+    assert any("Неверный пароль" in item.value for item in app.error)
+    assert len(app.text_area) == 0
+    app.session_state["login_retry_after"] = 0
+    app.text_input(key="login_password").set_value("test-password")
+    click_label(app, "Войти")
+    assert not app.exception
+    app.text_input(key="api_key_input").set_value("test-key").run()
+    click_label(app, "Заполнить пример")
+    click_label(app, "Создать описание")
+    click_label(app, "Выйти")
+    assert not app.exception
+    assert [item.label for item in app.button] == ["Войти"]
+    assert "report" not in app.session_state
+    assert "api_key_input" not in app.session_state
+
+
+def test_missing_auth_secret_closes_access(monkeypatch) -> None:
+    """Проверяет закрытый доступ при отсутствии серверного секрета входа."""
+    monkeypatch.delenv("APP_PASSWORD_HASH")
+    app = AppTest.from_file(str(APP), default_timeout=20).run()
+    assert not app.exception
+    assert len(app.button) == 0
+    assert any("Доступ ещё не настроен" in item.value for item in app.error)

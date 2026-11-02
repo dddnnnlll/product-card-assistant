@@ -7,4 +7,4 @@ if (-not (Test-Path -LiteralPath $taskPython)) {
     & $taskPython -m pip install -r requirements.txt
     if ($LASTEXITCODE -ne 0) { throw 'Could not install dependencies.' }
 }
-& $taskPython -m streamlit run app.py
+& $taskPython -m streamlit run app.py --server.address 127.0.0.1

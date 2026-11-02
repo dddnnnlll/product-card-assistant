@@ -2,11 +2,13 @@
 
 import json
 import os
+import time
 from pathlib import Path
 
 import streamlit as st
 from dotenv import dotenv_values
 
+from card_assistant.auth import verify_password
 from card_assistant.examples import EXAMPLES, example_json
 from card_assistant.models import InputError, Product, Report, parse_product
 from card_assistant.provider import DEFAULT_MODELS, ProviderError
@@ -16,15 +18,58 @@ ROOT = Path(__file__).resolve().parent
 st.set_page_config(page_title="Карточка товара", layout="wide")
 
 
-def local_key() -> str:
-    """Читает ключ из окружения, локального .env или секретов Streamlit без вывода значения."""
-    value = os.environ.get("OPENROUTER_API_KEY") or dotenv_values(ROOT / ".env").get("OPENROUTER_API_KEY")
+def server_secret(name: str) -> str:
+    """Читает серверную настройку из окружения, локального .env или секретов Streamlit."""
+    value = os.environ.get(name) or dotenv_values(ROOT / ".env").get(name)
     if value:
         return value
     try:
-        return st.secrets.get("OPENROUTER_API_KEY", "")
+        return st.secrets.get(name, "")
     except (FileNotFoundError, st.errors.StreamlitSecretNotFoundError):
         return ""
+
+
+def log_out() -> None:
+    """Удаляет авторизацию, данные формы, ключ пользователя и результаты текущей сессии."""
+    st.session_state.clear()
+
+
+def check_login() -> None:
+    """Проверяет введённый пароль и ограничивает повторные попытки в текущей сессии."""
+    password = st.session_state.pop("login_password", "")
+    now = time.monotonic()
+    if now < st.session_state.get("login_retry_after", 0):
+        st.session_state["login_error"] = "Подождите несколько секунд и попробуйте снова."
+        return
+    encoded = server_secret("APP_PASSWORD_HASH")
+    if verify_password(password, encoded):
+        st.session_state["authenticated_hash"] = encoded
+        st.session_state.pop("login_error", None)
+        st.session_state.pop("login_retry_after", None)
+    else:
+        st.session_state["login_retry_after"] = now + 3
+        st.session_state["login_error"] = "Неверный пароль. Попробуйте ещё раз."
+
+
+def require_login() -> None:
+    """Останавливает приложение до успешного входа и закрывает доступ при отсутствии секрета."""
+    encoded = server_secret("APP_PASSWORD_HASH")
+    if not encoded:
+        st.error("Доступ ещё не настроен. Администратору нужно задать APP_PASSWORD_HASH в секретах приложения.")
+        st.stop()
+    if st.session_state.get("authenticated_hash") == encoded:
+        return
+    # Убираем данные предыдущего входа при смене пароля на сервере.
+    if st.session_state.get("authenticated_hash"):
+        log_out()
+    st.title("Описание товара")
+    st.write("Введите пароль из сообщения со ссылкой на приложение.")
+    with st.form("login"):
+        st.text_input("Пароль", type="password", key="login_password")
+        st.form_submit_button("Войти", on_click=check_login, type="primary")
+    if st.session_state.get("login_error"):
+        st.error(st.session_state["login_error"])
+    st.stop()
 
 
 def fill_example() -> None:
@@ -119,9 +164,11 @@ def main() -> None:
         [data-testid="stAlert"] p {color:#D4E5F2;}
         [data-testid="stToolbar"] {display:none;}
     </style>""", unsafe_allow_html=True)
+    require_login()
+    st.button("Выйти", on_click=log_out)
     for field in ("name", "manufacturer", "specs_text", "description"):
         st.session_state.setdefault(field, "")
-    saved_key = local_key()
+    saved_key = server_secret("OPENROUTER_API_KEY")
     if st.session_state.get("pipeline_version") != 2:
         st.session_state.pop("report", None)
         st.session_state["pipeline_version"] = 2
