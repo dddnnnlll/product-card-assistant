@@ -1,0 +1,6 @@
+# Direct dependency versions used during verification (Python 3.11.9).
+streamlit==1.57.0
+pydantic==2.14.2
+requests==2.32.3
+python-dotenv==1.2.2
+pytest==9.2.0

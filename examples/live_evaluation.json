@@ -1,0 +1,29 @@
+{
+  "checked_at_utc": "2026-11-02T16:30:28.076944+00:00",
+  "synthetic_inputs": true,
+  "note": "Сводка сохранённых результатов реальных запусков; новая генерация при сборке документа не выполнялась.",
+  "results": [
+    {
+      "case": "manometer",
+      "passed": true,
+      "model": "nvidia/nemotron-3.5-super-vl:free",
+      "api_calls": 3,
+      "title_chars": 57,
+      "description_chars": 805,
+      "search_queries": 4,
+      "requirements_met": true,
+      "semantic_reviewed": true
+    },
+    {
+      "case": "transmitter",
+      "passed": true,
+      "model": "nvidia/nemotron-3.5-super-vl:free",
+      "api_calls": 3,
+      "title_chars": 57,
+      "description_chars": 851,
+      "search_queries": 4,
+      "requirements_met": true,
+      "semantic_reviewed": true
+    }
+  ]
+}
